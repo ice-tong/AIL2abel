@@ -2,8 +2,11 @@
 set -xe
 
 
-BIN_DATA_DIR=${1:-"/root/autodl-tmp/data-bin/ailabel_x64_O2_270w_100pp"}
-EXP_NAME=`basename $BIN_DATA_DIR`
+BIN_DATA_DIR=${1:-"datasets/data-bin/ailabel_x64_O2_270w_100pp"}
+EXP_NAME=${2:-`basename $BIN_DATA_DIR`}
+
+CHECKPOINT_DIR=checkpoints
+LOG_DIR=logs
 
 EXP_CHECKPOINT_DIR=$CHECKPOINT_DIR/$EXP_NAME
 LOG_FILE=$LOG_DIR/$EXP_NAME/`date +%Y%m%d_%H_%M_%S`-train.log
@@ -40,7 +43,6 @@ CUDA_VISIBLE_DEVICES=0 fairseq-train \
   --random-token-prob 0.2 --mask-prob 0.2 \
   --memory-efficient-fp16 --batch-size-valid 20 \
   --skip-invalid-size-inputs-valid-test \
-  --input-combine drop_bytes \
   --ddp-backend no_c10d \
   --restore-file $EXP_CHECKPOINT_DIR/checkpoint_last.pt \
   --log-file $LOG_FILE

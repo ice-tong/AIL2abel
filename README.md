@@ -23,9 +23,11 @@ mkdir datasets
 tar -zxvf datasets/ailabel_x64_O2_270w_100pp.tar.gz -C datasets/
 ```
 
-Preprocess the dataset to the format that fairseq can use.
-```bashe
-python3 preprocess_data.py datasets/ailabel_x64_O2_270w_100pp datasets/data-bin/ailabel_x64_O2_270w_100pp --num_worker 40
+Preprocess the dataset to the format that fairseq can use by running the following command:
+```bash
+# the first parameter is the path of the dataset, the second parameter is the path of the output, 
+# and the third parameter is the number of processes used for preprocessing
+bash preprocess_data.sh datasets/ailabel_x64_O2_270w_100pp datasets/data-bin/ailabel_x64_O2_270w_100pp 40
 ```
 
 We also provide a small dataset for debugging which can be download from [ailabel_x64_O2_270w_10pp.tar.gz](https://drive.google.com/file/d/1CI-Tg3Tv0P_OejRX3oqPtlCxt26nFhoE/view?usp=sharing).

@@ -101,7 +101,7 @@ class AIL2abelCriterion(_FairseqCriterion):
         # reshape
         pred_labels = pred_labels.reshape(-1, 4).detach().cpu().numpy()
         targets = targets.reshape(-1, 4).detach().cpu().numpy()
-        
+
         # post process: vote the predicted name if same var
         pred_labels, _ = self._post_process(pred_labels, targets)
         for pred, target in zip(pred_labels.reshape(-1), targets.reshape(-1)):
@@ -192,9 +192,7 @@ class AIL2abelCriterion(_FairseqCriterion):
             # precision, recall, multi_accuracy = 0.0, 0.0, 0.0
             # if np.isnan(precision) or np.isnan(recall) or np.isnan(multi_accuracy):
             #     raise DropSample('drop sample')
-            
-            
-
+                        
         # count the sample size
         sample_size = len(outputs)
 
@@ -215,6 +213,7 @@ class AIL2abelCriterion(_FairseqCriterion):
                 print(f'tgt code:', self.task.source_dictionary[AIL_TOKEN_LABEL_FIELD].string(targets_code_idx[remove_tmp_var]))
                 print(f'pred code:', self.task.source_dictionary[AIL_TOKEN_LABEL_FIELD].string(pred_code_idx[remove_tmp_var]))
 
+        tmpstkvar_idx = self.task.source_dictionary[AIL_TOKEN_LABEL_FIELD].indices["<TmpStackVar>"]
         logging_output = {
             "loss": loss.data,
             "ntokens": sample["ntokens"],
@@ -225,6 +224,9 @@ class AIL2abelCriterion(_FairseqCriterion):
             "precision": precision,
             "recall": recall,
             "cer": cer,
+            "tmpstkvar_tp": self.class_tp[tmpstkvar_idx],
+            "tmpstkvar_fp": self.class_fp[tmpstkvar_idx],
+            "tmpstkvar_fn": self.class_fn[tmpstkvar_idx]
         }
         return loss, sample_size, logging_output
 
@@ -270,6 +272,27 @@ class AIL2abelCriterion(_FairseqCriterion):
         cer_list = [c for c in cer_list if not np.isnan(c)]
         cer = 100.0 if len(cer_list) == 0 else sum(cer_list)/len(cer_list)
         metrics.log_scalar("cer", cer, 1, round=4)
+
+        tmpstkvar_tp = logging_outputs[-1]["tmpstkvar_tp"]
+        tmpstkvar_fp = logging_outputs[-1]["tmpstkvar_fp"]
+        tmpstkvar_fn = logging_outputs[-1]["tmpstkvar_fn"]
+        
+        # We should improve this
+        if tmpstkvar_tp + tmpstkvar_fp > 0:
+            tmpstkvar_precision = tmpstkvar_tp / (tmpstkvar_tp + tmpstkvar_fp)
+        else:
+            tmpstkvar_precision = 0
+        if tmpstkvar_tp + tmpstkvar_fn > 0:
+            tmpstkvar_recall = tmpstkvar_tp / (tmpstkvar_tp + tmpstkvar_fn)
+        else:
+            tmpstkvar_recall = 0
+        if tmpstkvar_precision + tmpstkvar_recall > 0:
+            tmpstkvar_f1 = 2 * (tmpstkvar_precision * tmpstkvar_recall) / (tmpstkvar_precision + tmpstkvar_recall)
+        else:
+            tmpstkvar_f1 = 0
+        metrics.log_scalar("tmpstkvar_precision", tmpstkvar_precision, 1, round=4)
+        metrics.log_scalar("tmpstkvar_recall", tmpstkvar_recall, 1, round=4)
+        metrics.log_scalar("tmpstkvar_f1", tmpstkvar_f1, 1, round=4)
 
     @staticmethod
     def logging_outputs_can_be_summed() -> bool:

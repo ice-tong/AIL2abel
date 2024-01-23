@@ -1,4 +1,5 @@
 import json
+import os
 
 
 NUM_STRS = {str(i) for i in range(10)}
@@ -23,13 +24,14 @@ def split_num(vname):
 class Name2Label:
 
     def __init__(self):
-        with open("resources/fixed_lookup.json") as f:
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        with open(os.path.join(current_dir, "resources/fixed_lookup.json")) as f:
             self.lookup = json.load(f)
-        with open("resources/lemma.json") as f:
+        with open(os.path.join(current_dir, "resources/lemma.json")) as f:
             self.lemma = json.load(f)
-        with open("resources/specials.txt") as f:
+        with open(os.path.join(current_dir, "resources/specials.txt")) as f:
             self.specials = set([l for l in f.read().splitlines() if l])
-        with open("resources/vocabs.txt") as f:
+        with open(os.path.join(current_dir, "resources/vocabs.txt")) as f:
             self.vocabs = set([l for l in f.read().splitlines() if l])
             self.vocabs |= set(self.lookup.values())
         self.bad_names = set()

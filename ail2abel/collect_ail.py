@@ -4,6 +4,8 @@ import pickle
 import logging
 from collections import OrderedDict
 from multiprocessing import Process
+import json
+from typing import Dict, List
 
 from func_timeout import func_set_timeout, FunctionTimedOut
 
@@ -15,6 +17,8 @@ from angr.analyses.decompiler import AILSimplifier, BlockSimplifier
 from angr.analyses.decompiler.optimization_passes import _all_optimization_passes
 from angr.analyses.decompiler.optimization_passes.stack_canary_simplifier import StackCanarySimplifier
 from angr.analyses import register_analysis
+
+from ail_tokenizer import AILTokener, TokenerContext, VAR_LABELS_COUNTER, AILOpType, Config
 
 
 class AARCH64StackCanarySimplifier(StackCanarySimplifier):
@@ -238,6 +242,59 @@ def extract_var(stmt_or_expr, variables=None):
     return variables
 
 
+def tokenize_ail_stmts(ail_stmts: Dict[str, "TaggedObject"]) -> List[Dict[str, List[str]]]:
+    if len(ail_stmts) < 1:
+        return []
+
+    ctx = TokenerContext()
+    ail_tokeners: Dict[str, "AILTokener"] = {}
+    for stmt_addr, stmt in ail_stmts.items():
+        ail_tokeners[stmt_addr] = AILTokener.from_ail_stmt(stmt, ctx=ctx)
+
+    samples = []
+    sample = {}
+    max_tokens_len = 1024
+
+    for idx, (stmt_addr, ail_tokener) in enumerate(ail_tokeners.items()):
+        tokens = ail_tokener.tokens
+        var_masked_tokens = ail_tokener.var_masked_tokens
+        stmt_idxs = [str(idx) for _ in range(len(tokens))]
+        op_idxs = [str(i) for i in range(len(tokens))]
+        
+        if "ail_token" not in sample:
+            sample["ail_token"] = var_masked_tokens
+            sample["ail_token_label"] = tokens
+            sample["stmt_idxs"] = stmt_idxs
+            sample["op_idxs"] = op_idxs
+        else:
+            sample["ail_token"] += var_masked_tokens
+            sample["ail_token_label"] += tokens
+            sample["stmt_idxs"] += stmt_idxs
+            sample["op_idxs"] += op_idxs
+        
+        if len(sample["ail_token"]) >= max_tokens_len:
+            samples.append(sample)
+            sample = {}
+    
+    if sample not in samples:
+        samples.append(sample)
+    
+    # We should drop the sample that we don't need
+    valid_samples = []
+    for sample in samples:
+        if "ail_token" not in sample:
+            continue
+        if sample["ail_token"].count(AILOpType.VMASK.value) == 0:
+            continue
+        valid_samples.append(sample)
+
+    for sample in valid_samples:
+        for key, value in sample.items():
+            if isinstance(value, list):
+                sample[key] = ' '.join(value)
+    return valid_samples
+
+
 @func_set_timeout(10*2)
 def clinic_it(proj, func, without_simplification):
     if without_simplification:
@@ -315,7 +372,7 @@ def process_elf(elf_fpath, pickle_dir, without_simplification, debug):
             continue
 
         try:
-            stmts = process_function(function, proj, cfg, debug, without_simplification=False)
+            stmts = process_function(function, proj, cfg, debug, without_simplification=without_simplification)
         except Exception as e:
             # if debug:
             #     raise e
@@ -326,36 +383,19 @@ def process_elf(elf_fpath, pickle_dir, without_simplification, debug):
         if stmts is None:
             continue
 
-        pickle_fpath = os.path.join(pickle_dir, f'{function.name}.pkl')
-        with open(pickle_fpath, 'wb') as f:
-            pickle.dump(stmts, f)
-        
+        samples = tokenize_ail_stmts(stmts)
+        if len(samples) != 0:
+            sample_json_fpath = os.path.join(pickle_dir, f'{function.name}.json')
+            with open(sample_json_fpath, 'w') as f:
+                json.dump(tokenize_ail_stmts(stmts), f, indent=4)
+
         if debug:
+            pickle_fpath = os.path.join(pickle_dir, f'{function.name}.pkl')
+            with open(pickle_fpath, 'wb') as f:
+                pickle.dump(stmts, f)
             with open(pickle_fpath.replace('.pkl', '.txt'), 'w', encoding='utf-8') as f:
                 for stmt in stmts.values():
                     f.write(str(stmt) + '\n')
-        
-        if without_simplification:
-            try:
-                wo_stmts = process_function(function, proj, cfg, debug, without_simplification)
-            except Exception as e:
-                if debug:
-                    raise e
-                else:
-                    print(e)
-                continue
-            
-            if wo_stmts is None:
-                continue
-
-            wo_pickle_fpath = os.path.join(wo_pickle_dir, f'{function.name}.pkl')
-            with open(wo_pickle_fpath, 'wb') as f:
-                pickle.dump(wo_stmts, f)
-            
-            if debug:
-                with open(wo_pickle_fpath.replace('.pkl', '.txt'), 'w', encoding='utf-8') as f:
-                    for stmt in wo_stmts.values():
-                        f.write(str(stmt) + '\n')
 
 
 def run(elf_fnames, elf_dir, save_dir, args, debug=False, proc_num=4):

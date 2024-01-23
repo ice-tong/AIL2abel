@@ -1,5 +1,5 @@
 import pickle
-from typing import Dict
+from typing import Dict, List
 from .ail_tokenizer import AILTokener, TokenerContext, VAR_LABELS_COUNTER, AILOpType, Config
 
 

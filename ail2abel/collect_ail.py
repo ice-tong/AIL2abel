@@ -19,6 +19,7 @@ from angr.analyses.decompiler.optimization_passes.stack_canary_simplifier import
 from angr.analyses import register_analysis
 
 from ail_tokenizer import AILTokener, TokenerContext, VAR_LABELS_COUNTER, AILOpType, Config
+from ail_tokenizer.name2label import split_var_name
 
 
 class AARCH64StackCanarySimplifier(StackCanarySimplifier):
@@ -260,18 +261,26 @@ def tokenize_ail_stmts(ail_stmts: Dict[str, "TaggedObject"]) -> List[Dict[str, L
         var_masked_tokens = ail_tokener.var_masked_tokens
         stmt_idxs = [str(idx) for _ in range(len(tokens))]
         op_idxs = [str(i) for i in range(len(tokens))]
-        
+
+        vid2var = {}
+        for ail_var in extract_var(ail_stmts[stmt_addr]):
+            vid = ctx.normalize_var_ident(
+                ail_var.ident, is_func_arg=ail_var.is_function_argument)
+            vid2var[vid] = {"var_name": ail_var.name, "var_labels": split_var_name(ail_var.name)}
+
         if "ail_token" not in sample:
             sample["ail_token"] = var_masked_tokens
             sample["ail_token_label"] = tokens
             sample["stmt_idxs"] = stmt_idxs
             sample["op_idxs"] = op_idxs
+            sample["ail_variables"] = vid2var
         else:
             sample["ail_token"] += var_masked_tokens
             sample["ail_token_label"] += tokens
             sample["stmt_idxs"] += stmt_idxs
             sample["op_idxs"] += op_idxs
-        
+            sample["ail_variables"].update(vid2var)
+            
         if len(sample["ail_token"]) >= max_tokens_len:
             samples.append(sample)
             sample = {}

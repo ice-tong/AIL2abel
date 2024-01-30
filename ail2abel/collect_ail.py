@@ -264,9 +264,9 @@ def tokenize_ail_stmts(ail_stmts: Dict[str, "TaggedObject"]) -> List[Dict[str, L
 
         vid2var = {}
         for ail_var in extract_var(ail_stmts[stmt_addr]):
-            vid = ctx.normalize_var_ident(
-                ail_var.ident, is_func_arg=ail_var.is_function_argument)
-            vid2var[vid] = {"var_name": ail_var.name, "var_labels": split_var_name(ail_var.name)}
+            vid, *var_labels = ail_tokener.var_tokens(ail_var)
+            var_labels = [var_label for var_label in var_labels if var_label != AILOpType.VPAD.value]
+            vid2var[vid] = {"var_name": ail_var.name, "var_labels": var_labels}
 
         if "ail_token" not in sample:
             sample["ail_token"] = var_masked_tokens
@@ -314,7 +314,8 @@ def clinic_it(proj, func, without_simplification):
         register_analysis(BlockSimplifier, "AILBlockSimplifier")
     optimization_passes = get_optimization_passes(proj)
     return proj.analyses.Clinic(func, remove_dead_memdefs=False,
-                                optimization_passes=optimization_passes)
+                                optimization_passes=optimization_passes,
+                                exception_edges=True)
 
 
 @func_set_timeout(30*2)
@@ -340,8 +341,7 @@ def process_function(function, proj, cfg, debug, without_simplification):
             consts = extract_const(stmt)
             for const in consts:
                 const.value = extract_memory_data(cfg, const.value)
-            vars = extract_var(stmt)
-            for var in vars:
+            for var in extract_var(stmt):
                 unified_var = var_mgr.unified_variable(var)
                 if unified_var is not None:
                     var.ident = unified_var.ident
@@ -350,7 +350,7 @@ def process_function(function, proj, cfg, debug, without_simplification):
     return stmts
 
 
-def process_elf(elf_fpath, pickle_dir, without_simplification, debug):
+def process_elf(elf_fpath, pickle_dir, without_simplification, debug, specific_func=None):
     """
     Process an ELF file and return a dictionary of functions and their
     corresponding basic blocks.
@@ -378,6 +378,9 @@ def process_elf(elf_fpath, pickle_dir, without_simplification, debug):
     for function in list(cfg.kb.functions.values()):
 
         if function.is_simprocedure or function.is_plt or function.alignment:
+            continue
+
+        if specific_func is not None and specific_func != function.name:
             continue
 
         try:
@@ -411,12 +414,20 @@ def run(elf_fnames, elf_dir, save_dir, args, debug=False, proc_num=4):
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
 
+    if args.func is not None:
+        specific_bin, specific_func = args.func.split('@')
+    else:
+        specific_bin, specific_func = None, None
+
     for elf_fname in elf_fnames:
         # elf_fname = 'todolist.o' # CFI parse error
         # elf_fname = 'auth'  # AttributeError: 'MultiValuedMemory' object has no attribute '_pages'
         # elf_fname = 'smtpctl'
         elf_fpath = os.path.join(elf_dir, elf_fname)
         pickle_dir = os.path.join(save_dir, elf_fname)
+
+        if specific_bin is not None and specific_bin != elf_fname:
+            continue
 
         if os.path.exists(pickle_dir) and not debug:
             print(f'skip since local save path exists: {pickle_dir}')
@@ -426,15 +437,15 @@ def run(elf_fnames, elf_dir, save_dir, args, debug=False, proc_num=4):
             print(f'skip since bianry size > 100M: {elf_fpath}')
             continue
 
-        try:
-            process = Process(target=process_elf, args=(
-                elf_fpath, pickle_dir, args.without_simplification, debug))
-            process.start()
-            process.join(timeout=60*20*2)
-        except Exception as e:
-            if debug:
-                raise e
-            else:
+        if debug:
+            process_elf(elf_fpath, pickle_dir, args.without_simplification, debug, specific_func)
+        else:
+            try:
+                process = Process(target=process_elf, args=(
+                    elf_fpath, pickle_dir, args.without_simplification, debug, specific_func))
+                process.start()
+                process.join(timeout=60*20*2)
+            except Exception as e:
                 print(e)
 
 
@@ -444,6 +455,8 @@ if __name__ == "__main__":
     parser.add_argument("out_dir", default="./pickle_files")
     parser.add_argument("-x", "--debug", default=False, action='store_true')
     parser.add_argument("-wos", "--without_simplification", default=False, action='store_true')
+    parser.add_argument("--func", default=None, type=str,
+                        help="The specific function to process in `<bin_name>@<func_name>` format.")
     args = parser.parse_args()
 
     root_binary_dir = os.path.normpath(args.in_dir)

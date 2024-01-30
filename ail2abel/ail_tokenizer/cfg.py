@@ -1,3 +1,4 @@
+import os
 from tokenizers import Tokenizer
 
 
@@ -27,3 +28,4 @@ class _Config:
 
 
 Config = _Config()
+Config.load_tokenizer(os.path.join(os.path.dirname(__file__), "ail_bpe_tokenizer.json"))

@@ -33,7 +33,7 @@ def main():
 
     json_dir = "./outputs"
     out_dir = "./predicteds"
-    checkpoint = "checkpoints/ailabel_x64_O2_270w_100pp/checkpoint_best_new.pt"
+    checkpoint = "checkpoints/ailabel_x64_O2_270w_100pp/checkpoint_best.pt"
     
 
     os.makedirs(out_dir, exist_ok=True)
@@ -46,6 +46,9 @@ def main():
 
     for binary_dir in tqdm.tqdm(os.listdir(json_dir)):
         for func_json_file in os.listdir(os.path.join(json_dir, binary_dir)):
+            if not func_json_file.endswith(".json"):
+                continue
+
             func_json_path = os.path.join(json_dir, binary_dir, func_json_file)
             predicted_path = os.path.join(out_dir, binary_dir, func_json_file)
             os.makedirs(os.path.dirname(predicted_path), exist_ok=True)
@@ -92,8 +95,10 @@ def main():
                 
                 # vote for each vid and pick the most common one
                 for vid, varlabels in id2varlabels.items():
-                    vote_conuter = Counter([tuple(var) for var in varlabels])
-                    id2varlabels[vid] = vote_conuter.most_common(1)[0][0]
+                    vote_conuter = Counter()
+                    for var_label in varlabels:
+                        vote_conuter.update(var_label)
+                    id2varlabels[vid] = vote_conuter
                 
                 predicted_sample = sample.copy()
                 for vid in predicted_sample["ail_variables"]:
